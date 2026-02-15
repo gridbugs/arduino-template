@@ -1,10 +1,10 @@
 #include <stdint.h>
 #include <avr/io.h>
 
-void ADC_init(void) {
+void ADC_init(uint8_t pins) {
     PRR &= ~(1 << PRADC); // disable power reduction ADC bit
     ADCSRA = (1 << ADEN); // enable the ADC
-    DIDR0 = 0xFF; // enable all the ADC pins
+    DIDR0 = pins;
     ADMUX = (1 << REFS0); // use supply voltage as reference voltage
 }
 
