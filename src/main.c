@@ -13,6 +13,11 @@
 #define MAX_NUM_STEPS 32
 
 typedef struct {
+    uint8_t adc_index;
+    uint8_t out_portb_index;
+    bool pressed_now;
+    bool pressed_prev;
+    bool allow_fill;
     bool sequence[MAX_NUM_STEPS];
 } channel_t;
 
@@ -41,13 +46,46 @@ bool get_clear_button(void) {
     return (PINB & BIT(5)) == 0;
 }
 
-#define NUM_STEPS_DISPLAY_DELAY 4000
+#define NUM_STEPS_DISPLAY_DELAY 2000
 
 int main(void) {
     ADC_init(0xFF);
     USART0_bitbanged_init();
 
-    channel_t channels[NUM_CHANNELS] = { 0 };
+    channel_t channels[NUM_CHANNELS] = {
+        [0] = {
+            .adc_index = 2,
+            .out_portb_index = 4,
+            .sequence = { 0 },
+            .pressed_now = false,
+            .pressed_prev = false,
+            .allow_fill = true,
+        },
+        [1] = {
+            .adc_index = 3,
+            .out_portb_index = 3,
+            .sequence = { 0 },
+            .pressed_now = false,
+            .pressed_prev = false,
+            .allow_fill = false,
+        },
+        [2] = {
+            .adc_index = 4,
+            .out_portb_index = 2,
+            .sequence = { 0 },
+            .pressed_now = false,
+            .pressed_prev = false,
+            .allow_fill = false,
+        },
+        [3] = {
+            .adc_index = 5,
+            .out_portb_index = 1,
+            .sequence = { 0 },
+            .pressed_now = false,
+            .pressed_prev = false,
+            .allow_fill = false,
+        },
+    };
 
     uint8_t count = 0;
 
@@ -74,46 +112,28 @@ int main(void) {
         }
         global_count++;
 
-        if (!(PIND & BIT(5))) {
-            channels[0].sequence[count] = !clear;
-        }
-        if (!(PIND & BIT(6))) {
-            channels[1].sequence[count] = !clear;
-        }
-        if (!(PIND & BIT(7))) {
-            channels[2].sequence[count] = !clear;
-        }
-        if (!(PINB & BIT(0))) {
-            channels[3].sequence[count] = !clear;
-        }
+        channels[0].pressed_now = !(PIND & BIT(5));
+        channels[1].pressed_now = !(PIND & BIT(6));
+        channels[2].pressed_now = !(PIND & BIT(7));
+        channels[3].pressed_now = !(PINB & BIT(0));
 
-        uint32_t channel_0_threshold = ((uint32_t)ADC_read(2) * delay) / 4096;
-        uint32_t channel_1_threshold = ((uint32_t)ADC_read(3) * delay) / 4096;
-        uint32_t channel_2_threshold = ((uint32_t)ADC_read(4) * delay) / 4096;
-        uint32_t channel_3_threshold = ((uint32_t)ADC_read(5) * delay) / 4096;
-
-        if (channels[0].sequence[count] && (cycles_since_last_tick < channel_0_threshold)) {
-            PORTB |= BIT(4);
-        } else {
-            PORTB &= ~BIT(4);
-        }
-
-        if (channels[1].sequence[count] && (cycles_since_last_tick < channel_1_threshold)) {
-            PORTB |= BIT(3);
-        } else {
-            PORTB &= ~BIT(3);
-        }
-
-        if (channels[2].sequence[count] && (cycles_since_last_tick < channel_2_threshold)) {
-            PORTB |= BIT(2);
-        } else {
-            PORTB &= ~BIT(2);
-        }
-
-        if (channels[3].sequence[count] && (cycles_since_last_tick < channel_3_threshold)) {
-            PORTB |= BIT(1);
-        } else {
-            PORTB &= ~BIT(1);
+        for (int i = 0; i < NUM_CHANNELS; i++) {
+            channel_t *ch = &channels[i];
+            if (ch->pressed_now) {
+                if (clear) {
+                    ch->sequence[count] = false;
+                } else if (ch->allow_fill || !ch->pressed_prev) {
+                    ch->sequence[count] = true;
+                }
+            }
+            ch->pressed_prev = ch->pressed_now;
+            uint32_t threshold = ((uint32_t)ADC_read(ch->adc_index) * delay) / 4096;
+            threshold = threshold == 0 ? 1 : threshold;
+            if (ch->sequence[count] && (cycles_since_last_tick < threshold)) {
+                PORTB |= BIT(ch->out_portb_index);
+            } else {
+                PORTB &= ~BIT(ch->out_portb_index);
+            }
         }
 
         uint8_t num_steps = get_num_steps();
